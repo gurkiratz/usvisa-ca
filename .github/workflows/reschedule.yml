@@ -58,7 +58,7 @@ jobs:
           # Runtime settings
           SHOW_GUI: false
           TEST_MODE: false
-          MAX_RUNTIME_SECONDS: ${{ github.event.inputs.max_runtime_hours && (github.event.inputs.max_runtime_hours | tonumber * 3600) || 18000 }} # 5 hours default
+          MAX_RUNTIME_SECONDS: ${{ github.event.inputs.max_runtime_hours && (github.event.inputs.max_runtime_hours * 3600) || 18000 }} # 5 hours default
 
         run: |
           echo "Starting visa appointment rescheduler..."
