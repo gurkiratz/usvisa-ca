@@ -1,57 +1,140 @@
-# US Visa Rescheduler for Canada
+# US Visa Appointment Rescheduler
 
-A simple Python script for making US visa interview appointments in Canada
+Automatically monitors and reschedules US visa appointments to earlier available dates.
 
-## Setup
+## 🚀 Quick Start
 
-Make sure you have booked an appointment on https://ais.usvisa-info.com/en-ca/.
+### Cloud Deployment (Recommended)
 
-Install dependencies (Python3 is required):
-```sh
-pip install -r requirements.txt
+1. **Fork/Clone this repository**
+2. **Set GitHub Secrets** in your repo → Settings → Secrets and variables → Actions:
+   ```
+   USER_EMAIL=your_visa_account@example.com
+   USER_PASSWORD=your_visa_password
+   EARLIEST_ACCEPTABLE_DATE=2025-08-10
+   LATEST_ACCEPTABLE_DATE=2026-05-10
+   USER_CONSULATE=Toronto
+   GMAIL_EMAIL=your_gmail@gmail.com
+   GMAIL_APPLICATION_PWD=your_16_char_app_password
+   RECEIVER_EMAIL=notifications@example.com
+   ```
+3. **Push to GitHub** - The workflow runs automatically at 2 AM UTC daily!
+
+### Local Development
+
+1. **Set up environment variables**:
+
+   ```bash
+   cp local_env.example.sh local_env.sh
+   # Edit local_env.sh with your credentials
+   source local_env.sh
+   ```
+
+2. **Install dependencies**:
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. **Run the script**:
+   ```bash
+   python reschedule.py
+   ```
+
+## 🔧 Configuration
+
+All configuration is done via environment variables:
+
+### Required Variables
+
+- `USER_EMAIL` - Your visa account email
+- `USER_PASSWORD` - Your visa account password
+- `EARLIEST_ACCEPTABLE_DATE` - Earliest date you want (YYYY-MM-DD)
+- `LATEST_ACCEPTABLE_DATE` - Latest acceptable date (YYYY-MM-DD)
+- `USER_CONSULATE` - Consulate city (Toronto, Vancouver, etc.)
+- `GMAIL_EMAIL` - Gmail for sending notifications
+- `GMAIL_APPLICATION_PWD` - Gmail app password (16 characters)
+- `RECEIVER_EMAIL` - Where to send notifications
+
+### Optional Variables
+
+- `NUM_PARTICIPANTS` - Number of applicants (default: 1)
+- `SHOW_GUI` - Show browser window (default: false)
+- `TEST_MODE` - Test mode without actual rescheduling (default: false)
+
+## 📧 Gmail Setup
+
+1. Enable 2-factor authentication on Gmail
+2. Go to Google Account → Security → App passwords
+3. Generate password for "Mail"
+4. Use this 16-character password (not your regular Gmail password)
+
+## 🕐 Scheduling
+
+The GitHub Actions workflow runs automatically at **2 AM UTC daily**.
+
+To change the schedule, edit `.github/workflows/reschedule.yml`:
+
+```yaml
+# Daily at different time
+- cron: '0 1 * * *' # 1 AM UTC
+
+# Every 6 hours
+- cron: '0 */6 * * *'
+
+# Weekdays only
+- cron: '0 2 * * 1-5' # 2 AM UTC, Monday-Friday
 ```
 
-Modify `settings.py` as per the instructions within the script:
+## 🔍 Monitoring
 
-```python3
-USER_EMAIL = "name@gmail.com"
-USER_PASSWORD = "yourpassword"
-EARLIEST_ACCEPTABLE_DATE = "2024-01-01"  # this is now only used in detecting
-LATEST_ACCEPTABLE_DATE = "2024-03-14" 
-USER_CONSULATE = "Toronto"
-```
+- Check **GitHub Actions** tab for run logs
+- **Email notifications** when appointments are found/rescheduled
+- **Manual trigger** available in GitHub Actions
 
-### Find a slot and book it automatically
+## 🏗️ Architecture
 
-```sh
-python reschedule.py
-```
+- **reschedule.py** - Main script with cloud-native configuration
+- **legacy_rescheduler.py** - Handles the actual rescheduling logic
+- **.github/workflows/reschedule.yml** - GitHub Actions automation
+- **console_utils.py** - Pretty console output and logging
 
-See the script in action. Once you're satisfied with its functionality, set `TEST_MODE` to `False` in `settings.py`. For a headless operation, you can also set `SHOW_GUI` to `False` and allow the script to run unattended.
+## 🚨 Troubleshooting
 
-Note `detect_and_notify.py` is no longer maintained.
+### Common Issues
 
+1. **Missing environment variables**: The script will fail with clear error messages
+2. **Chrome crashes**: Cloud-optimized Chrome options are included
+3. **Session timeouts**: Automatic retry logic handles disconnections
+4. **Gmail authentication**: Use app passwords, not regular passwords
 
-## Caution
+### Logs
 
-It may not always be feasible to reschedule an appointment multiple times. Therefore, it's crucial to use `TEST_MODE = True` for testing purposes and ensure the `LATEST_ACCEPTABLE_DATE` is genuinely acceptable to you.
+- GitHub Actions: Check the Actions tab in your repository
+- Local: Console output shows detailed progress and errors
 
-Consulates other than Toronto and Vancouver are not tested.
+## 🔒 Security
 
-## Contribution
+- **No credentials in code**: Everything uses environment variables
+- **GitHub Secrets**: Encrypted storage for sensitive data
+- **App passwords**: Use Gmail app passwords for better security
 
-Please feel free to report issues. PRs are welcomed and greatly appreciated!
+## 📞 Support
 
-One improvement I'm interested in is rewriting `legacy_rescheduler` using `requests`.
+If you encounter issues:
 
-## Special thanks
+1. Check the GitHub Actions logs
+2. Verify all environment variables are set correctly
+3. Test Gmail credentials separately
+4. Ensure the visa website hasn't changed
 
-Huge thanks to [@jywyq](https://github.com/jywyq) for adding the Gmail notification feature.
+## 🎯 How It Works
 
-Huge thanks to [@bsingh-kpt](https://github.com/bsingh-kpt) for (finally!) fixing the `legacy_rescheduler` in Mar 2025.
+1. **Logs into** your visa account
+2. **Navigates to** appointment scheduling page
+3. **Checks for** available dates earlier than your current appointment
+4. **Automatically reschedules** if better dates are found
+5. **Sends email** notifications on success/failure
+6. **Runs continuously** until successful or timeout
 
-Thanks to [@trungnguyen21](https://github.com/trungnguyen21) and [@saroopskesav](https://github.com/saroopskesav) for helping with the consulate numbers in other cities.
-
-## Disclaimer
-
-This script is provided as-is for the purpose of assisting individuals in rescheduling appointments. While it has been developed with care and with the intention of being helpful, it comes with no guarantees or warranties of any kind, either expressed or implied. By using this script, you acknowledge and agree that you are doing so at your own risk. The author(s) or contributor(s) of this script shall not be held liable for any direct or indirect damages that arise from its use. Please ensure that you understand the actions performed by this script before running it, and consider the ethical and legal implications of its use in your context.
+Built with ❤️ for visa applicants worldwide.

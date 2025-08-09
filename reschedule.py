@@ -16,96 +16,77 @@ from console_utils import Console
 from legacy_rescheduler import legacy_reschedule
 from request_tracker import RequestTracker
 
-try:
-    # Cloud deployment - use environment variables
-    if os.getenv("USER_EMAIL"):
-        # Validate required environment variables
-        required_vars = [
-            "USER_EMAIL",
-            "USER_PASSWORD",
-            "EARLIEST_ACCEPTABLE_DATE",
-            "LATEST_ACCEPTABLE_DATE",
-            "USER_CONSULATE",
-            "GMAIL_EMAIL",
-            "GMAIL_APPLICATION_PWD",
-            "RECEIVER_EMAIL",
-        ]
+# Validate required environment variables
+required_vars = [
+    "USER_EMAIL",
+    "USER_PASSWORD",
+    "EARLIEST_ACCEPTABLE_DATE",
+    "LATEST_ACCEPTABLE_DATE",
+    "USER_CONSULATE",
+    "GMAIL_EMAIL",
+    "GMAIL_APPLICATION_PWD",
+    "RECEIVER_EMAIL",
+]
 
-        missing_vars = [var for var in required_vars if not os.getenv(var)]
-        if missing_vars:
-            raise ValueError(
-                f"Missing required environment variables: {', '.join(missing_vars)}"
-            )
+missing_vars = [var for var in required_vars if not os.getenv(var)]
+if missing_vars:
+    raise ValueError(
+        f"Missing required environment variables: {', '.join(missing_vars)}"
+    )
 
-        # Account Info
-        USER_EMAIL = os.getenv("USER_EMAIL")
-        USER_PASSWORD = os.getenv("USER_PASSWORD")
-        NUM_PARTICIPANTS = int(os.getenv("NUM_PARTICIPANTS", "1"))
+# Account Info
+USER_EMAIL = os.getenv("USER_EMAIL")
+USER_PASSWORD = os.getenv("USER_PASSWORD")
+NUM_PARTICIPANTS = int(os.getenv("NUM_PARTICIPANTS", "1"))
 
-        # Date preferences
-        EARLIEST_ACCEPTABLE_DATE = os.getenv("EARLIEST_ACCEPTABLE_DATE")
-        LATEST_ACCEPTABLE_DATE = os.getenv("LATEST_ACCEPTABLE_DATE")
+# Date preferences
+EARLIEST_ACCEPTABLE_DATE = os.getenv("EARLIEST_ACCEPTABLE_DATE")
+LATEST_ACCEPTABLE_DATE = os.getenv("LATEST_ACCEPTABLE_DATE")
 
-        # Consulate configuration
-        CONSULATES = {
-            "Calgary": 89,
-            "Halifax": 90,
-            "Montreal": 91,
-            "Ottawa": 92,
-            "Quebec": 93,
-            "Toronto": 94,
-            "Vancouver": 95,
-        }
-        USER_CONSULATE = os.getenv("USER_CONSULATE")
+# Consulate configuration
+CONSULATES = {
+    "Calgary": 89,
+    "Halifax": 90,
+    "Montreal": 91,
+    "Ottawa": 92,
+    "Quebec": 93,
+    "Toronto": 94,
+    "Vancouver": 95,
+}
+USER_CONSULATE = os.getenv("USER_CONSULATE")
 
-        # Gmail notification settings
-        GMAIL_SENDER_NAME = os.getenv("GMAIL_SENDER_NAME", "Visa Appointment Reminder")
-        GMAIL_EMAIL = os.getenv("GMAIL_EMAIL")
-        GMAIL_APPLICATION_PWD = os.getenv("GMAIL_APPLICATION_PWD")
-        RECEIVER_NAME = os.getenv("RECEIVER_NAME", "User")
-        RECEIVER_EMAIL = os.getenv("RECEIVER_EMAIL")
+# Gmail notification settings
+GMAIL_SENDER_NAME = os.getenv("GMAIL_SENDER_NAME", "Visa Appointment Reminder")
+GMAIL_EMAIL = os.getenv("GMAIL_EMAIL")
+GMAIL_APPLICATION_PWD = os.getenv("GMAIL_APPLICATION_PWD")
+RECEIVER_NAME = os.getenv("RECEIVER_NAME", "User")
+RECEIVER_EMAIL = os.getenv("RECEIVER_EMAIL")
 
-        # Cloud deployment settings
-        SHOW_GUI = os.getenv("SHOW_GUI", "false").lower() == "true"
-        TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"
+# Runtime settings
+SHOW_GUI = os.getenv("SHOW_GUI", "false").lower() == "true"
+TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"
+DETACH = False  # Always False for cloud
+NEW_SESSION_AFTER_FAILURES = int(os.getenv("NEW_SESSION_AFTER_FAILURES", "5"))
+NEW_SESSION_DELAY = int(os.getenv("NEW_SESSION_DELAY", "60"))
+TIMEOUT = int(os.getenv("TIMEOUT", "10"))
+FAIL_RETRY_DELAY = int(os.getenv("FAIL_RETRY_DELAY", "30"))
+DATE_REQUEST_DELAY = int(os.getenv("DATE_REQUEST_DELAY", "30"))
+DATE_REQUEST_MAX_RETRY = int(os.getenv("DATE_REQUEST_MAX_RETRY", "1000"))
+DATE_REQUEST_MAX_TIME = int(os.getenv("DATE_REQUEST_MAX_TIME", "1800"))
 
-        # Runtime configuration
-        DETACH = False  # Always False for cloud
-        NEW_SESSION_AFTER_FAILURES = int(os.getenv("NEW_SESSION_AFTER_FAILURES", "5"))
-        NEW_SESSION_DELAY = int(os.getenv("NEW_SESSION_DELAY", "60"))
-        TIMEOUT = int(os.getenv("TIMEOUT", "10"))
-        FAIL_RETRY_DELAY = int(os.getenv("FAIL_RETRY_DELAY", "30"))
-        DATE_REQUEST_DELAY = int(os.getenv("DATE_REQUEST_DELAY", "30"))
-        DATE_REQUEST_MAX_RETRY = int(os.getenv("DATE_REQUEST_MAX_RETRY", "1000"))
-        DATE_REQUEST_MAX_TIME = int(os.getenv("DATE_REQUEST_MAX_TIME", "1800"))
+# Cloud platform timeout
+MAX_RUNTIME_SECONDS = int(os.getenv("MAX_RUNTIME_SECONDS", "18000"))  # 5 hours default
 
-        # Cloud platform timeout
-        MAX_RUNTIME_SECONDS = int(
-            os.getenv("MAX_RUNTIME_SECONDS", "18000")
-        )  # 5 hours default
-
-        # URLs and endpoints
-        LOGIN_URL = "https://ais.usvisa-info.com/en-ca/niv/users/sign_in"
-        AVAILABLE_DATE_REQUEST_SUFFIX = (
-            f"/days/{CONSULATES[USER_CONSULATE]}.json?appointments[expedite]=false"
-        )
-        APPOINTMENT_PAGE_URL = (
-            "https://ais.usvisa-info.com/en-ca/niv/schedule/{id}/appointment"
-        )
-        PAYMENT_PAGE_URL = "https://ais.usvisa-info.com/en-ca/niv/schedule/{id}/payment"
-        REQUEST_HEADERS = {
-            "X-Requested-With": "XMLHttpRequest",
-        }
-    else:
-        # Local development - import from settings.py
-        from settings import *
-
-        MAX_RUNTIME_SECONDS = getattr(locals(), "MAX_RUNTIME_SECONDS", None)
-except ImportError:
-    # Fallback to local settings
-    from settings import *
-
-    MAX_RUNTIME_SECONDS = getattr(locals(), "MAX_RUNTIME_SECONDS", None)
+# URLs and endpoints
+LOGIN_URL = "https://ais.usvisa-info.com/en-ca/niv/users/sign_in"
+AVAILABLE_DATE_REQUEST_SUFFIX = (
+    f"/days/{CONSULATES[USER_CONSULATE]}.json?appointments[expedite]=false"
+)
+APPOINTMENT_PAGE_URL = "https://ais.usvisa-info.com/en-ca/niv/schedule/{id}/appointment"
+PAYMENT_PAGE_URL = "https://ais.usvisa-info.com/en-ca/niv/schedule/{id}/payment"
+REQUEST_HEADERS = {
+    "X-Requested-With": "XMLHttpRequest",
+}
 
 
 def get_chrome_driver() -> WebDriver:
