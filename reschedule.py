@@ -1,3 +1,5 @@
+# Try to import cloud settings (environment variables), fallback to local settings
+import os
 import re
 import traceback
 from datetime import datetime
@@ -13,7 +15,79 @@ from selenium.webdriver.support.ui import WebDriverWait
 from console_utils import Console
 from legacy_rescheduler import legacy_reschedule
 from request_tracker import RequestTracker
-from settings import *
+
+try:
+    # Cloud deployment - use environment variables
+    if os.getenv("USER_EMAIL"):
+        # Account Info
+        USER_EMAIL = os.getenv("USER_EMAIL", "")
+        USER_PASSWORD = os.getenv("USER_PASSWORD", "")
+        NUM_PARTICIPANTS = int(os.getenv("NUM_PARTICIPANTS", "1"))
+
+        # Date preferences
+        EARLIEST_ACCEPTABLE_DATE = os.getenv("EARLIEST_ACCEPTABLE_DATE", "2025-08-10")
+        LATEST_ACCEPTABLE_DATE = os.getenv("LATEST_ACCEPTABLE_DATE", "2026-05-10")
+
+        # Consulate configuration
+        CONSULATES = {
+            "Calgary": 89,
+            "Halifax": 90,
+            "Montreal": 91,
+            "Ottawa": 92,
+            "Quebec": 93,
+            "Toronto": 94,
+            "Vancouver": 95,
+        }
+        USER_CONSULATE = os.getenv("USER_CONSULATE", "Toronto")
+
+        # Gmail notification settings
+        GMAIL_SENDER_NAME = os.getenv("GMAIL_SENDER_NAME", "Visa Appointment Reminder")
+        GMAIL_EMAIL = os.getenv("GMAIL_EMAIL", "")
+        GMAIL_APPLICATION_PWD = os.getenv("GMAIL_APPLICATION_PWD", "")
+        RECEIVER_NAME = os.getenv("RECEIVER_NAME", "")
+        RECEIVER_EMAIL = os.getenv("RECEIVER_EMAIL", "")
+
+        # Cloud deployment settings
+        SHOW_GUI = os.getenv("SHOW_GUI", "false").lower() == "true"
+        TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"
+
+        # Runtime configuration
+        DETACH = False  # Always False for cloud
+        NEW_SESSION_AFTER_FAILURES = int(os.getenv("NEW_SESSION_AFTER_FAILURES", "5"))
+        NEW_SESSION_DELAY = int(os.getenv("NEW_SESSION_DELAY", "60"))
+        TIMEOUT = int(os.getenv("TIMEOUT", "10"))
+        FAIL_RETRY_DELAY = int(os.getenv("FAIL_RETRY_DELAY", "30"))
+        DATE_REQUEST_DELAY = int(os.getenv("DATE_REQUEST_DELAY", "30"))
+        DATE_REQUEST_MAX_RETRY = int(os.getenv("DATE_REQUEST_MAX_RETRY", "1000"))
+        DATE_REQUEST_MAX_TIME = int(os.getenv("DATE_REQUEST_MAX_TIME", "1800"))
+
+        # Cloud platform timeout
+        MAX_RUNTIME_SECONDS = int(
+            os.getenv("MAX_RUNTIME_SECONDS", "18000")
+        )  # 5 hours default
+
+        # URLs and endpoints
+        LOGIN_URL = "https://ais.usvisa-info.com/en-ca/niv/users/sign_in"
+        AVAILABLE_DATE_REQUEST_SUFFIX = (
+            f"/days/{CONSULATES[USER_CONSULATE]}.json?appointments[expedite]=false"
+        )
+        APPOINTMENT_PAGE_URL = (
+            "https://ais.usvisa-info.com/en-ca/niv/schedule/{id}/appointment"
+        )
+        PAYMENT_PAGE_URL = "https://ais.usvisa-info.com/en-ca/niv/schedule/{id}/payment"
+        REQUEST_HEADERS = {
+            "X-Requested-With": "XMLHttpRequest",
+        }
+    else:
+        # Local development - import from settings.py
+        from settings import *
+
+        MAX_RUNTIME_SECONDS = getattr(locals(), "MAX_RUNTIME_SECONDS", None)
+except ImportError:
+    # Fallback to local settings
+    from settings import *
+
+    MAX_RUNTIME_SECONDS = getattr(locals(), "MAX_RUNTIME_SECONDS", None)
 
 
 def get_chrome_driver() -> WebDriver:
@@ -176,10 +250,31 @@ if __name__ == "__main__":
         f"Target date range: {EARLIEST_ACCEPTABLE_DATE} to {LATEST_ACCEPTABLE_DATE}"
     )
     Console.info(f"Consulate: {USER_CONSULATE}")
+
+    # Add timeout handling for cloud deployment
+    import time
+
+    start_time = time.time()
+    if MAX_RUNTIME_SECONDS:
+        Console.info(
+            f"Max runtime: {MAX_RUNTIME_SECONDS} seconds ({MAX_RUNTIME_SECONDS / 3600:.1f} hours)"
+        )
+
     Console.separator()
 
     session_count = 0
     while True:
+        # Check timeout for cloud deployment
+        if MAX_RUNTIME_SECONDS:
+            elapsed = time.time() - start_time
+            if elapsed > MAX_RUNTIME_SECONDS:
+                Console.warning(
+                    f"Maximum runtime ({MAX_RUNTIME_SECONDS}s) reached. Exiting gracefully."
+                )
+                break
+            remaining = MAX_RUNTIME_SECONDS - elapsed
+            Console.info(f"Time remaining: {remaining:.0f} seconds")
+
         session_count += 1
         Console.session_start(session_count)
         rescheduled = reschedule_with_new_session()

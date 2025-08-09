@@ -10,7 +10,14 @@ on:
         description: 'Maximum runtime in hours (max 6 for free tier)'
         required: false
         default: '5'
-        type: string
+        type: choice
+        options:
+          - '1'
+          - '2'
+          - '3'
+          - '4'
+          - '5'
+          - '6'
 
 jobs:
   reschedule:
@@ -58,17 +65,21 @@ jobs:
           # Runtime settings
           SHOW_GUI: false
           TEST_MODE: false
-          MAX_RUNTIME_SECONDS: ${{ github.event.inputs.max_runtime_hours && (github.event.inputs.max_runtime_hours * 3600) || 18000 }} # 5 hours default
+          MAX_RUNTIME_SECONDS: ${{ github.event.inputs.max_runtime_hours || '5' }}
 
         run: |
+          # Convert hours to seconds
+          MAX_RUNTIME_SECONDS_CALC=$((MAX_RUNTIME_SECONDS * 3600))
+          export MAX_RUNTIME_SECONDS=$MAX_RUNTIME_SECONDS_CALC
+
           echo "Starting visa appointment rescheduler..."
           echo "Target dates: $EARLIEST_ACCEPTABLE_DATE to $LATEST_ACCEPTABLE_DATE"
           echo "Consulate: $USER_CONSULATE"
           echo "Max runtime: $MAX_RUNTIME_SECONDS seconds"
-          python reschedule_cloud.py
+          python reschedule.py
 
       - name: Upload logs (if any)
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: always()
         with:
           name: reschedule-logs
