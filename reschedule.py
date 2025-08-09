@@ -10,6 +10,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
+from console_utils import Console
 from legacy_rescheduler import legacy_reschedule
 from request_tracker import RequestTracker
 from settings import *
@@ -21,9 +22,11 @@ def get_chrome_driver() -> WebDriver:
         options.add_argument("headless")
         options.add_argument("window-size=1920x1080")
         options.add_argument("disable-gpu")
-        options.add_argument('user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36')
+        options.add_argument(
+            "user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36"
+        )
     options.add_experimental_option("detach", DETACH)
-    options.add_argument('--incognito')
+    options.add_argument("--incognito")
     driver = webdriver.Chrome(options=options)
     return driver
 
@@ -82,17 +85,17 @@ def get_available_dates(
     try:
         response = requests.get(request_url, headers=request_headers)
     except Exception as e:
-        print("Get available dates request failed: ", e)
+        Console.error(f"Get available dates request failed: {e}", "REQUEST")
         return None
     if response.status_code != 200:
-        print(f"Failed with status code {response.status_code}")
-        print(f"Response Text: {response.text}")
+        Console.error(f"Failed with status code {response.status_code}", "HTTP")
+        Console.debug(f"Response Text: {response.text}")
         return None
     try:
         dates_json = response.json()
     except:
-        print("Failed to decode json")
-        print(f"Response Text: {response.text}")
+        Console.error("Failed to decode JSON response", "PARSE")
+        Console.debug(f"Response Text: {response.text}")
         return None
     dates = [datetime.strptime(item["date"], "%Y-%m-%d").date() for item in dates_json]
     return dates
@@ -101,12 +104,14 @@ def get_available_dates(
 def reschedule(driver: WebDriver, retryCount: int = 0) -> bool:
     date_request_tracker = RequestTracker(
         retryCount if (retryCount > 0) else DATE_REQUEST_MAX_RETRY,
-        30 * retryCount if (retryCount > 0) else DATE_REQUEST_MAX_TIME
+        30 * retryCount if (retryCount > 0) else DATE_REQUEST_MAX_TIME,
     )
     while date_request_tracker.should_retry():
+        Console.searching("Checking for available appointment dates...")
         dates = get_available_dates(driver, date_request_tracker)
         if not dates:
-            print("Error occured when requesting available dates")
+            Console.error("Error occurred when requesting available dates", "FETCH")
+            Console.waiting(DATE_REQUEST_DELAY, "before retry")
             sleep(DATE_REQUEST_DELAY)
             continue
         earliest_available_date = dates[0]
@@ -114,22 +119,23 @@ def reschedule(driver: WebDriver, retryCount: int = 0) -> bool:
             LATEST_ACCEPTABLE_DATE, "%Y-%m-%d"
         ).date()
         if earliest_available_date <= latest_acceptable_date:
-            print(
-                f"{datetime.now().strftime('%H:%M:%S')} FOUND SLOT ON {earliest_available_date}!!!"
-            )
+            Console.found_slot(str(earliest_available_date))
             try:
+                Console.info(
+                    f"Attempting to reschedule to {earliest_available_date}..."
+                )
                 if legacy_reschedule(driver, earliest_available_date):
-                    print("SUCCESSFULLY RESCHEDULED!!!")
+                    Console.reschedule_status(True)
                     return True
+                Console.reschedule_status(False)
                 return False
             except Exception as e:
-                print("Rescheduling failed: ", e)
-                traceback.print_exc()
+                Console.error(f"Rescheduling failed: {e}", "RESCHEDULE")
+                Console.debug(traceback.format_exc())
                 continue
         else:
-            print(
-                f"{datetime.now().strftime('%H:%M:%S')} Earliest available date is {earliest_available_date}"
-            )
+            Console.date_check(str(earliest_available_date), acceptable=False)
+        Console.waiting(DATE_REQUEST_DELAY, "before next check")
         sleep(DATE_REQUEST_DELAY)
     return False
 
@@ -139,12 +145,16 @@ def reschedule_with_new_session(retryCount: int = DATE_REQUEST_MAX_RETRY) -> boo
     session_failures = 0
     while session_failures < NEW_SESSION_AFTER_FAILURES:
         try:
+            Console.info("Logging into visa appointment system...")
             login(driver)
+            Console.login_status(True)
+            Console.info("Navigating to appointment page...")
             get_appointment_page(driver)
             break
         except Exception as e:
-            print("Unable to get appointment page: ", e)
+            Console.error(f"Unable to get appointment page: {e}", "SESSION")
             session_failures += 1
+            Console.waiting(FAIL_RETRY_DELAY, "before session retry")
             sleep(FAIL_RETRY_DELAY)
             continue
     rescheduled = reschedule(driver, retryCount)
@@ -156,11 +166,24 @@ def reschedule_with_new_session(retryCount: int = DATE_REQUEST_MAX_RETRY) -> boo
 
 
 if __name__ == "__main__":
+    Console.separator("US VISA APPOINTMENT RESCHEDULER")
+    Console.info(
+        f"Target date range: {EARLIEST_ACCEPTABLE_DATE} to {LATEST_ACCEPTABLE_DATE}"
+    )
+    Console.info(f"Consulate: {USER_CONSULATE}")
+    Console.separator()
+
     session_count = 0
     while True:
         session_count += 1
-        print(f"Attempting with new session #{session_count}")
+        Console.session_start(session_count)
         rescheduled = reschedule_with_new_session()
-        sleep(NEW_SESSION_DELAY)
         if rescheduled:
+            Console.success("Program completed successfully! Appointment rescheduled.")
             break
+        else:
+            Console.warning(
+                f"Session #{session_count} failed. Retrying in {NEW_SESSION_DELAY} seconds..."
+            )
+            Console.waiting(NEW_SESSION_DELAY, "before new session")
+            sleep(NEW_SESSION_DELAY)

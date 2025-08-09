@@ -1,5 +1,7 @@
 import time
 
+from console_utils import Console
+
 
 class RequestTracker:
     def __init__(self, max_retries, max_time):
@@ -13,13 +15,13 @@ class RequestTracker:
 
     def should_retry(self):
         if self.retries > self.max_retries:
-            print("Max retries reached")
+            Console.max_retries_reached()
             return False
         elapsed_time = time.time() - self.start_time
         if elapsed_time > self.max_time:
-            print("Max time reached")
+            Console.max_time_reached()
             return False
         return True
 
     def log_retry(self):
-        print(f"Session retry: {self.retries}")
+        Console.session_retry(self.retries)
