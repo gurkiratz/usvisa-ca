@@ -43,12 +43,61 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Validate required secrets
+        run: |
+          echo "Validating required secrets..."
+
+          # Check required account credentials
+          if [ -z "${{ secrets.USER_EMAIL }}" ]; then
+            echo "❌ ERROR: USER_EMAIL secret is required"
+            exit 1
+          fi
+
+          if [ -z "${{ secrets.USER_PASSWORD }}" ]; then
+            echo "❌ ERROR: USER_PASSWORD secret is required"
+            exit 1
+          fi
+
+          # Check date preferences
+          if [ -z "${{ secrets.EARLIEST_ACCEPTABLE_DATE }}" ]; then
+            echo "❌ ERROR: EARLIEST_ACCEPTABLE_DATE secret is required"
+            exit 1
+          fi
+
+          if [ -z "${{ secrets.LATEST_ACCEPTABLE_DATE }}" ]; then
+            echo "❌ ERROR: LATEST_ACCEPTABLE_DATE secret is required"
+            exit 1
+          fi
+
+          if [ -z "${{ secrets.USER_CONSULATE }}" ]; then
+            echo "❌ ERROR: USER_CONSULATE secret is required"
+            exit 1
+          fi
+
+          # Check Gmail notification settings
+          if [ -z "${{ secrets.GMAIL_EMAIL }}" ]; then
+            echo "❌ ERROR: GMAIL_EMAIL secret is required"
+            exit 1
+          fi
+
+          if [ -z "${{ secrets.GMAIL_APPLICATION_PWD }}" ]; then
+            echo "❌ ERROR: GMAIL_APPLICATION_PWD secret is required"
+            exit 1
+          fi
+
+          if [ -z "${{ secrets.RECEIVER_EMAIL }}" ]; then
+            echo "❌ ERROR: RECEIVER_EMAIL secret is required"
+            exit 1
+          fi
+
+          echo "✅ All required secrets are present"
+
       - name: Run visa appointment rescheduler
         env:
           # Account credentials (set these in GitHub Secrets)
           USER_EMAIL: ${{ secrets.USER_EMAIL }}
           USER_PASSWORD: ${{ secrets.USER_PASSWORD }}
-          NUM_PARTICIPANTS: ${{ secrets.NUM_PARTICIPANTS }}
+          NUM_PARTICIPANTS: ${{ secrets.NUM_PARTICIPANTS || '1' }}
 
           # Date preferences
           EARLIEST_ACCEPTABLE_DATE: ${{ secrets.EARLIEST_ACCEPTABLE_DATE }}
@@ -56,10 +105,10 @@ jobs:
           USER_CONSULATE: ${{ secrets.USER_CONSULATE }}
 
           # Gmail notification settings
-          GMAIL_SENDER_NAME: ${{ secrets.GMAIL_SENDER_NAME }}
+          GMAIL_SENDER_NAME: ${{ secrets.GMAIL_SENDER_NAME || 'Visa Appointment Reminder' }}
           GMAIL_EMAIL: ${{ secrets.GMAIL_EMAIL }}
           GMAIL_APPLICATION_PWD: ${{ secrets.GMAIL_APPLICATION_PWD }}
-          RECEIVER_NAME: ${{ secrets.RECEIVER_NAME }}
+          RECEIVER_NAME: ${{ secrets.RECEIVER_NAME || 'User' }}
           RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
 
           # Runtime settings

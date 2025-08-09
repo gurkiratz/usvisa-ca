@@ -19,14 +19,32 @@ from request_tracker import RequestTracker
 try:
     # Cloud deployment - use environment variables
     if os.getenv("USER_EMAIL"):
+        # Validate required environment variables
+        required_vars = [
+            "USER_EMAIL",
+            "USER_PASSWORD",
+            "EARLIEST_ACCEPTABLE_DATE",
+            "LATEST_ACCEPTABLE_DATE",
+            "USER_CONSULATE",
+            "GMAIL_EMAIL",
+            "GMAIL_APPLICATION_PWD",
+            "RECEIVER_EMAIL",
+        ]
+
+        missing_vars = [var for var in required_vars if not os.getenv(var)]
+        if missing_vars:
+            raise ValueError(
+                f"Missing required environment variables: {', '.join(missing_vars)}"
+            )
+
         # Account Info
-        USER_EMAIL = os.getenv("USER_EMAIL", "")
-        USER_PASSWORD = os.getenv("USER_PASSWORD", "")
+        USER_EMAIL = os.getenv("USER_EMAIL")
+        USER_PASSWORD = os.getenv("USER_PASSWORD")
         NUM_PARTICIPANTS = int(os.getenv("NUM_PARTICIPANTS", "1"))
 
         # Date preferences
-        EARLIEST_ACCEPTABLE_DATE = os.getenv("EARLIEST_ACCEPTABLE_DATE", "2025-08-10")
-        LATEST_ACCEPTABLE_DATE = os.getenv("LATEST_ACCEPTABLE_DATE", "2026-05-10")
+        EARLIEST_ACCEPTABLE_DATE = os.getenv("EARLIEST_ACCEPTABLE_DATE")
+        LATEST_ACCEPTABLE_DATE = os.getenv("LATEST_ACCEPTABLE_DATE")
 
         # Consulate configuration
         CONSULATES = {
@@ -38,14 +56,14 @@ try:
             "Toronto": 94,
             "Vancouver": 95,
         }
-        USER_CONSULATE = os.getenv("USER_CONSULATE", "Toronto")
+        USER_CONSULATE = os.getenv("USER_CONSULATE")
 
         # Gmail notification settings
         GMAIL_SENDER_NAME = os.getenv("GMAIL_SENDER_NAME", "Visa Appointment Reminder")
-        GMAIL_EMAIL = os.getenv("GMAIL_EMAIL", "")
-        GMAIL_APPLICATION_PWD = os.getenv("GMAIL_APPLICATION_PWD", "")
-        RECEIVER_NAME = os.getenv("RECEIVER_NAME", "")
-        RECEIVER_EMAIL = os.getenv("RECEIVER_EMAIL", "")
+        GMAIL_EMAIL = os.getenv("GMAIL_EMAIL")
+        GMAIL_APPLICATION_PWD = os.getenv("GMAIL_APPLICATION_PWD")
+        RECEIVER_NAME = os.getenv("RECEIVER_NAME", "User")
+        RECEIVER_EMAIL = os.getenv("RECEIVER_EMAIL")
 
         # Cloud deployment settings
         SHOW_GUI = os.getenv("SHOW_GUI", "false").lower() == "true"
