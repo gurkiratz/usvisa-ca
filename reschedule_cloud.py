@@ -1,4 +1,7 @@
 import re
+import signal
+import sys
+import time
 import traceback
 from datetime import datetime
 from time import sleep
@@ -13,7 +16,31 @@ from selenium.webdriver.support.ui import WebDriverWait
 from console_utils import Console
 from legacy_rescheduler import legacy_reschedule
 from request_tracker import RequestTracker
-from settings import *
+
+# Import cloud settings if available, fallback to regular settings
+try:
+    from settings_cloud import *
+except ImportError:
+    from settings import *
+
+
+class TimeoutHandler:
+    def __init__(self, max_runtime_seconds):
+        self.max_runtime_seconds = max_runtime_seconds
+        self.start_time = time.time()
+
+    def check_timeout(self):
+        elapsed = time.time() - self.start_time
+        if elapsed > self.max_runtime_seconds:
+            Console.warning(
+                f"Approaching timeout limit ({self.max_runtime_seconds}s). Gracefully shutting down..."
+            )
+            return True
+        return False
+
+    def remaining_time(self):
+        elapsed = time.time() - self.start_time
+        return max(0, self.max_runtime_seconds - elapsed)
 
 
 def get_chrome_driver() -> WebDriver:
@@ -38,40 +65,15 @@ def get_chrome_driver() -> WebDriver:
 
 def login(driver: WebDriver) -> None:
     driver.get(LOGIN_URL)
-    timeout = TIMEOUT
-
-    email_input = WebDriverWait(driver, timeout).until(
-        EC.visibility_of_element_located((By.ID, "user_email"))
-    )
-    email_input.send_keys(USER_EMAIL)
-
-    password_input = WebDriverWait(driver, timeout).until(
-        EC.visibility_of_element_located((By.ID, "user_password"))
-    )
-    password_input.send_keys(USER_PASSWORD)
-
-    policy_checkbox = WebDriverWait(driver, timeout).until(
-        EC.element_to_be_clickable((By.CLASS_NAME, "icheckbox"))
-    )
-    policy_checkbox.click()
-
-    login_button = WebDriverWait(driver, timeout).until(
-        EC.element_to_be_clickable((By.NAME, "commit"))
-    )
-    login_button.click()
+    driver.find_element(By.ID, "user_email").send_keys(USER_EMAIL)
+    driver.find_element(By.ID, "user_password").send_keys(USER_PASSWORD)
+    driver.find_element(By.NAME, "commit").click()
 
 
 def get_appointment_page(driver: WebDriver) -> None:
-    timeout = TIMEOUT
-    continue_button = WebDriverWait(driver, timeout).until(
-        EC.element_to_be_clickable((By.LINK_TEXT, "Continue"))
-    )
-    continue_button.click()
-    sleep(2)
-    current_url = driver.current_url
-    url_id = re.search(r"/(\d+)", current_url).group(1)
-    appointment_url = APPOINTMENT_PAGE_URL.format(id=url_id)
-    driver.get(appointment_url)
+    WebDriverWait(driver, TIMEOUT).until(
+        EC.element_to_be_clickable((By.PARTIAL_LINK_TEXT, "Continue"))
+    ).click()
 
 
 def get_available_dates(
@@ -88,30 +90,36 @@ def get_available_dates(
     request_headers["Cookie"] = request_header_cookie
     request_headers["User-Agent"] = driver.execute_script("return navigator.userAgent")
     try:
-        response = requests.get(request_url, headers=request_headers)
-    except Exception as e:
-        Console.error(f"Get available dates request failed: {e}", "REQUEST")
-        return None
-    if response.status_code != 200:
-        Console.error(f"Failed with status code {response.status_code}", "HTTP")
-        Console.debug(f"Response Text: {response.text}")
-        return None
-    try:
+        response = requests.get(request_url, headers=request_headers, timeout=30)
+        if response.status_code != 200:
+            Console.error(
+                f"Request failed with status code: {response.status_code}", "REQUEST"
+            )
+            return None
         dates_json = response.json()
-    except:
-        Console.error("Failed to decode JSON response", "PARSE")
-        Console.debug(f"Response Text: {response.text}")
+        if not dates_json:
+            Console.info("No available dates found.")
+            return []
+    except Exception as e:
+        Console.error(f"Request failed: {e}", "REQUEST")
         return None
     dates = [datetime.strptime(item["date"], "%Y-%m-%d").date() for item in dates_json]
     return dates
 
 
-def reschedule(driver: WebDriver, retryCount: int = 0) -> bool:
+def reschedule(
+    driver: WebDriver, retryCount: int = 0, timeout_handler: TimeoutHandler = None
+) -> bool:
     date_request_tracker = RequestTracker(
         retryCount if (retryCount > 0) else DATE_REQUEST_MAX_RETRY,
         30 * retryCount if (retryCount > 0) else DATE_REQUEST_MAX_TIME,
     )
     while date_request_tracker.should_retry():
+        # Check for timeout
+        if timeout_handler and timeout_handler.check_timeout():
+            Console.warning("Timeout reached, stopping reschedule attempts")
+            return False
+
         Console.searching("Checking for available appointment dates...")
         dates = get_available_dates(driver, date_request_tracker)
         if not dates:
@@ -133,24 +141,26 @@ def reschedule(driver: WebDriver, retryCount: int = 0) -> bool:
                     Console.reschedule_status(True)
                     return True
                 Console.reschedule_status(False)
-                return False
             except Exception as e:
-                Console.error(f"Rescheduling failed: {e}", "RESCHEDULE")
-                Console.debug(traceback.format_exc())
-                continue
+                Console.error(f"Error during reschedule: {e}", "RESCHEDULE")
+                Console.error(traceback.format_exc(), "RESCHEDULE")
         else:
-            Console.date_check(str(earliest_available_date), acceptable=False)
+            Console.no_slot(str(earliest_available_date))
         Console.waiting(DATE_REQUEST_DELAY, "before next check")
         sleep(DATE_REQUEST_DELAY)
     return False
 
 
-def reschedule_with_new_session(retryCount: int = DATE_REQUEST_MAX_RETRY) -> bool:
+def reschedule_with_new_session(timeout_handler: TimeoutHandler = None) -> bool:
     driver = get_chrome_driver()
     session_failures = 0
     while session_failures < NEW_SESSION_AFTER_FAILURES:
+        if timeout_handler and timeout_handler.check_timeout():
+            driver.quit()
+            return False
+
         try:
-            Console.info("Logging into visa appointment system...")
+            Console.info("Logging in...")
             login(driver)
             Console.login_status(True)
             Console.info("Navigating to appointment page...")
@@ -162,7 +172,7 @@ def reschedule_with_new_session(retryCount: int = DATE_REQUEST_MAX_RETRY) -> boo
             Console.waiting(FAIL_RETRY_DELAY, "before session retry")
             sleep(FAIL_RETRY_DELAY)
             continue
-    rescheduled = reschedule(driver, retryCount)
+    rescheduled = reschedule(driver, 0, timeout_handler)
     driver.quit()
     if rescheduled:
         return True
@@ -170,19 +180,38 @@ def reschedule_with_new_session(retryCount: int = DATE_REQUEST_MAX_RETRY) -> boo
         return False
 
 
-if __name__ == "__main__":
-    Console.separator("US VISA APPOINTMENT RESCHEDULER")
+def main():
+    Console.separator("US VISA APPOINTMENT RESCHEDULER (Cloud Version)")
     Console.info(
         f"Target date range: {EARLIEST_ACCEPTABLE_DATE} to {LATEST_ACCEPTABLE_DATE}"
     )
     Console.info(f"Consulate: {USER_CONSULATE}")
+
+    # Initialize timeout handler
+    timeout_handler = (
+        TimeoutHandler(MAX_RUNTIME_SECONDS)
+        if "MAX_RUNTIME_SECONDS" in globals()
+        else None
+    )
+    if timeout_handler:
+        Console.info(f"Max runtime: {MAX_RUNTIME_SECONDS} seconds")
+
     Console.separator()
 
     session_count = 0
     while True:
+        if timeout_handler and timeout_handler.check_timeout():
+            Console.warning("Maximum runtime reached. Exiting gracefully.")
+            break
+
         session_count += 1
         Console.session_start(session_count)
-        rescheduled = reschedule_with_new_session()
+
+        if timeout_handler:
+            remaining = timeout_handler.remaining_time()
+            Console.info(f"Time remaining: {remaining:.0f} seconds")
+
+        rescheduled = reschedule_with_new_session(timeout_handler)
         if rescheduled:
             Console.success("Program completed successfully! Appointment rescheduled.")
             break
@@ -192,3 +221,7 @@ if __name__ == "__main__":
             )
             Console.waiting(NEW_SESSION_DELAY, "before new session")
             sleep(NEW_SESSION_DELAY)
+
+
+if __name__ == "__main__":
+    main()
