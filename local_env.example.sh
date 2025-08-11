@@ -19,6 +19,10 @@ export RECEIVER_EMAIL="notifications@example.com"
 export SHOW_GUI="true"  # Set to false for headless mode
 export TEST_MODE="false"
 
+# Optional: Session renewal settings (defaults are usually fine)
+# export SESSION_RENEWAL_MAX_ATTEMPTS="3"
+# export SESSION_RENEWAL_DELAY="5"
+
 echo "Environment variables set for local development"
 echo "Usage:"
 echo "1. Copy this file: cp local_env.example.sh local_env.sh"

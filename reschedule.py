@@ -74,6 +74,10 @@ DATE_REQUEST_DELAY = int(os.getenv("DATE_REQUEST_DELAY", "30"))
 DATE_REQUEST_MAX_RETRY = int(os.getenv("DATE_REQUEST_MAX_RETRY", "1000"))
 DATE_REQUEST_MAX_TIME = int(os.getenv("DATE_REQUEST_MAX_TIME", "1800"))
 
+# Session renewal settings
+SESSION_RENEWAL_MAX_ATTEMPTS = int(os.getenv("SESSION_RENEWAL_MAX_ATTEMPTS", "4"))
+SESSION_RENEWAL_DELAY = int(os.getenv("SESSION_RENEWAL_DELAY", "5"))
+
 # Cloud platform timeout
 MAX_RUNTIME_SECONDS = int(os.getenv("MAX_RUNTIME_SECONDS", "18000"))  # 5 hours default
 
@@ -149,7 +153,7 @@ def get_appointment_page(driver: WebDriver) -> None:
 
 def get_available_dates(
     driver: WebDriver, request_tracker: RequestTracker
-) -> list | None:
+) -> list | None | str:
     request_tracker.log_retry()
     request_tracker.retry()
     current_url = driver.current_url
@@ -165,10 +169,27 @@ def get_available_dates(
     except Exception as e:
         Console.error(f"Get available dates request failed: {e}", "REQUEST")
         return None
-    if response.status_code != 200:
+
+    if response.status_code == 401:
+        Console.error(f"Failed with status code {response.status_code}", "HTTP")
+        Console.debug(f"Response Text: {response.text}")
+        # Check if it's a session expiry
+        try:
+            error_data = response.json()
+            if "session expired" in error_data.get("error", "").lower():
+                Console.warning(
+                    "Session expired - need to create new session", "SESSION"
+                )
+                return "SESSION_EXPIRED"
+        except:
+            pass
+        Console.warning("Authentication failed - need to create new session", "SESSION")
+        return "SESSION_EXPIRED"
+    elif response.status_code != 200:
         Console.error(f"Failed with status code {response.status_code}", "HTTP")
         Console.debug(f"Response Text: {response.text}")
         return None
+
     try:
         dates_json = response.json()
     except:
@@ -179,7 +200,7 @@ def get_available_dates(
     return dates
 
 
-def reschedule(driver: WebDriver, retryCount: int = 0) -> bool:
+def reschedule(driver: WebDriver, retryCount: int = 0) -> bool | str:
     date_request_tracker = RequestTracker(
         retryCount if (retryCount > 0) else DATE_REQUEST_MAX_RETRY,
         30 * retryCount if (retryCount > 0) else DATE_REQUEST_MAX_TIME,
@@ -187,6 +208,14 @@ def reschedule(driver: WebDriver, retryCount: int = 0) -> bool:
     while date_request_tracker.should_retry():
         Console.searching("Checking for available appointment dates...")
         dates = get_available_dates(driver, date_request_tracker)
+
+        # Handle session expiry
+        if dates == "SESSION_EXPIRED":
+            Console.warning(
+                "Session expired during reschedule - triggering new session", "SESSION"
+            )
+            return "SESSION_EXPIRED"
+
         if not dates:
             Console.error("Error occurred when requesting available dates", "FETCH")
             Console.waiting(DATE_REQUEST_DELAY, "before retry")
@@ -221,6 +250,8 @@ def reschedule(driver: WebDriver, retryCount: int = 0) -> bool:
 def reschedule_with_new_session(retryCount: int = DATE_REQUEST_MAX_RETRY) -> bool:
     driver = get_chrome_driver()
     session_failures = 0
+
+    # Login and setup session
     while session_failures < NEW_SESSION_AFTER_FAILURES:
         try:
             Console.info("Logging into visa appointment system...")
@@ -235,12 +266,59 @@ def reschedule_with_new_session(retryCount: int = DATE_REQUEST_MAX_RETRY) -> boo
             Console.waiting(FAIL_RETRY_DELAY, "before session retry")
             sleep(FAIL_RETRY_DELAY)
             continue
-    rescheduled = reschedule(driver, retryCount)
-    driver.quit()
-    if rescheduled:
-        return True
-    else:
-        return False
+
+    # Main reschedule loop with session renewal
+    session_renewal_attempts = 0
+    while True:
+        rescheduled = reschedule(driver, retryCount)
+
+        # Handle different return values
+        if rescheduled == "SESSION_EXPIRED":
+            session_renewal_attempts += 1
+            if session_renewal_attempts > SESSION_RENEWAL_MAX_ATTEMPTS:
+                Console.error(
+                    f"Maximum session renewal attempts ({SESSION_RENEWAL_MAX_ATTEMPTS}) exceeded",
+                    "SESSION",
+                )
+                driver.quit()
+                return False
+
+            Console.info(
+                f"Session expired - attempting to renew session (attempt {session_renewal_attempts}/{SESSION_RENEWAL_MAX_ATTEMPTS})..."
+            )
+            try:
+                # Clear cookies and start fresh
+                driver.delete_all_cookies()
+                sleep(SESSION_RENEWAL_DELAY)
+
+                # Navigate back to login page and re-login
+                driver.get(LOGIN_URL)
+                sleep(2)
+                login(driver)
+                Console.login_status(True)
+                Console.info("Navigating to appointment page...")
+                get_appointment_page(driver)
+                Console.success("Session renewed successfully!", "SESSION")
+                # Reset renewal attempts on success
+                session_renewal_attempts = 0
+                # Continue the loop to try rescheduling again
+                continue
+            except Exception as e:
+                Console.error(
+                    f"Failed to renew session (attempt {session_renewal_attempts}): {e}",
+                    "SESSION",
+                )
+                Console.waiting(SESSION_RENEWAL_DELAY, "before next renewal attempt")
+                sleep(SESSION_RENEWAL_DELAY)
+                # Continue to retry session renewal
+                continue
+        elif rescheduled == True:
+            driver.quit()
+            return True
+        else:
+            # rescheduled == False - normal failure, exit
+            driver.quit()
+            return False
 
 
 if __name__ == "__main__":
