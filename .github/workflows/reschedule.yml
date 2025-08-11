@@ -23,9 +23,6 @@ jobs:
   reschedule:
     runs-on: ubuntu-latest
     timeout-minutes: 360 # 6 hours max for GitHub Actions
-    
-    # Only run on fix-reschedule branch or manual dispatch
-    if: github.ref == 'refs/heads/fix-reschedule' || github.event_name == 'workflow_dispatch'
 
     steps:
       - name: Checkout code
