@@ -3,7 +3,7 @@ name: US Visa Appointment Rescheduler
 on:
   schedule:
     # Run at 2 AM UTC daily (adjust timezone as needed)
-    - cron: '0 2 * * *'
+    - cron: '0 22 * * *'
   workflow_dispatch: # Allow manual trigger
     inputs:
       max_runtime_hours:

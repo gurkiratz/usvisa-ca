@@ -91,6 +91,14 @@ class Console:
             )
 
     @staticmethod
+    def email_sent(email: str):
+        """Print email sent confirmation"""
+        timestamp = Console._get_timestamp()
+        print(
+            f"{Fore.CYAN}📧 [{timestamp}] Email notification sent to {email}{Style.RESET_ALL}"
+        )
+
+    @staticmethod
     def login_status(success: bool):
         """Print login status"""
         timestamp = Console._get_timestamp()
@@ -135,14 +143,6 @@ class Console:
             print(f"{Fore.MAGENTA}{separator_line}{Style.RESET_ALL}")
         else:
             print(f"{Fore.MAGENTA}{char * 60}{Style.RESET_ALL}")
-
-    @staticmethod
-    def email_sent(recipient: str):
-        """Print email notification sent message"""
-        timestamp = Console._get_timestamp()
-        print(
-            f"{Fore.GREEN}📧 [{timestamp}] Email notification sent to {recipient}{Style.RESET_ALL}"
-        )
 
     @staticmethod
     def max_retries_reached():

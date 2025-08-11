@@ -16,6 +16,16 @@ from console_utils import Console
 from legacy_rescheduler import legacy_reschedule
 from request_tracker import RequestTracker
 
+import threading
+
+# Import Gmail notification functionality
+try:
+    from legacy.gmail.gmail import GMail, Message
+    GMAIL_AVAILABLE = True
+except ImportError:
+    GMAIL_AVAILABLE = False
+    Console.warning("Gmail notification module not available - notifications will be disabled", "IMPORT")
+
 # Validate required environment variables
 required_vars = [
     "USER_EMAIL",
@@ -70,9 +80,14 @@ NEW_SESSION_AFTER_FAILURES = int(os.getenv("NEW_SESSION_AFTER_FAILURES", "5"))
 NEW_SESSION_DELAY = int(os.getenv("NEW_SESSION_DELAY", "60"))
 TIMEOUT = int(os.getenv("TIMEOUT", "10"))
 FAIL_RETRY_DELAY = int(os.getenv("FAIL_RETRY_DELAY", "30"))
-DATE_REQUEST_DELAY = int(os.getenv("DATE_REQUEST_DELAY", "30"))
+DATE_REQUEST_DELAY = int(os.getenv("DATE_REQUEST_DELAY", "10"))
 DATE_REQUEST_MAX_RETRY = int(os.getenv("DATE_REQUEST_MAX_RETRY", "1000"))
 DATE_REQUEST_MAX_TIME = int(os.getenv("DATE_REQUEST_MAX_TIME", "1800"))
+
+# Race condition handling settings
+BOOKING_RETRY_ATTEMPTS = int(os.getenv("BOOKING_RETRY_ATTEMPTS", "3"))
+BOOKING_RETRY_DELAY = int(os.getenv("BOOKING_RETRY_DELAY", "2"))
+FAST_MODE = os.getenv("FAST_MODE", "true").lower() == "true"
 
 # Session renewal settings
 SESSION_RENEWAL_MAX_ATTEMPTS = int(os.getenv("SESSION_RENEWAL_MAX_ATTEMPTS", "4"))
@@ -200,6 +215,139 @@ def get_available_dates(
     return dates
 
 
+def notify_slot_found_async(date_str: str, consulate: str):
+    """Send email notification asynchronously when a slot is found"""
+    def send_notification():
+        try:
+            if not GMAIL_AVAILABLE:
+                Console.warning("Gmail not available - skipping notification", "NOTIFY")
+                return False
+            
+            gmail = GMail(
+                f"{GMAIL_SENDER_NAME} <{GMAIL_EMAIL}>", 
+                GMAIL_APPLICATION_PWD
+            )
+            msg = Message(
+                f"🎯 VISA APPOINTMENT SLOT FOUND: {date_str} at {consulate}",
+                to=f"{RECEIVER_NAME} <{RECEIVER_EMAIL}>",
+                text=f"""
+🎯 APPOINTMENT SLOT FOUND! 🎯
+
+Date: {date_str}
+Consulate: {consulate}
+Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+The system is attempting to book this slot automatically.
+Please check your visa account to confirm the booking.
+
+If you need to manually book, log in immediately at:
+https://ais.usvisa-info.com/en-ca/niv/users/sign_in
+
+Good luck! 🍀
+            """
+            )
+            gmail.send(msg)
+            Console.email_sent(RECEIVER_EMAIL)
+            Console.info(f"Email notification sent for slot on {date_str}")
+            return True
+        except Exception as e:
+            Console.error(f"Failed to send email notification: {e}", "NOTIFY")
+            return False
+    
+    # Start notification in background thread - don't wait for it
+    notification_thread = threading.Thread(target=send_notification, daemon=True)
+    notification_thread.start()
+    Console.info(f"Email notification started in background for slot on {date_str}")
+
+def notify_reschedule_success_async(date_str: str, consulate: str):
+    """Send email notification asynchronously when rescheduling is successful"""
+    def send_notification():
+        try:
+            if not GMAIL_AVAILABLE:
+                return False
+            
+            gmail = GMail(
+                f"{GMAIL_SENDER_NAME} <{GMAIL_EMAIL}>", 
+                GMAIL_APPLICATION_PWD
+            )
+            msg = Message(
+                f"✅ VISA APPOINTMENT RESCHEDULED SUCCESSFULLY: {date_str}",
+                to=f"{RECEIVER_NAME} <{RECEIVER_EMAIL}>",
+                text=f"""
+✅ APPOINTMENT SUCCESSFULLY RESCHEDULED! ✅
+
+New Date: {date_str}
+Consulate: {consulate}
+Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+Your visa appointment has been automatically rescheduled to {date_str}.
+Please log in to your visa account to confirm the new appointment details.
+
+Login at: https://ais.usvisa-info.com/en-ca/niv/users/sign_in
+
+Congratulations! 🎉
+            """
+            )
+            gmail.send(msg)
+            Console.email_sent(RECEIVER_EMAIL)
+            Console.info(f"Success notification sent for {date_str}")
+            return True
+        except Exception as e:
+            Console.error(f"Failed to send success notification: {e}", "NOTIFY")
+            return False
+    
+    # Start notification in background thread
+    notification_thread = threading.Thread(target=send_notification, daemon=True)
+    notification_thread.start()
+    Console.info(f"Success notification started in background for {date_str}")
+
+def notify_reschedule_failed_async(date_str: str, consulate: str, error_msg: str):
+    """Send email notification asynchronously when rescheduling fails"""
+    def send_notification():
+        try:
+            if not GMAIL_AVAILABLE:
+                return False
+            
+            gmail = GMail(
+                f"{GMAIL_SENDER_NAME} <{GMAIL_EMAIL}>", 
+                GMAIL_APPLICATION_PWD
+            )
+            msg = Message(
+                f"❌ VISA APPOINTMENT RESCHEDULING FAILED: {date_str}",
+                to=f"{RECEIVER_NAME} <{RECEIVER_EMAIL}>",
+                text=f"""
+❌ APPOINTMENT RESCHEDULING FAILED ❌
+
+Target Date: {date_str}
+Consulate: {consulate}
+Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Error: {error_msg}
+
+The system found a slot but failed to book it. This could be due to:
+- The slot was taken by someone else
+- Technical issues with the website
+- Session timeout
+
+The system will continue trying to find and book other available slots.
+
+You may want to manually check for available appointments at:
+https://ais.usvisa-info.com/en-ca/niv/users/sign_in
+            """
+            )
+            gmail.send(msg)
+            Console.email_sent(RECEIVER_EMAIL)
+            Console.info(f"Failure notification sent for {date_str}")
+            return True
+        except Exception as e:
+            Console.error(f"Failed to send failure notification: {e}", "NOTIFY")
+            return False
+    
+    # Start notification in background thread
+    notification_thread = threading.Thread(target=send_notification, daemon=True)
+    notification_thread.start()
+    Console.info(f"Failure notification started in background for {date_str}")
+
+
 def reschedule(driver: WebDriver, retryCount: int = 0) -> bool | str:
     date_request_tracker = RequestTracker(
         retryCount if (retryCount > 0) else DATE_REQUEST_MAX_RETRY,
@@ -221,27 +369,53 @@ def reschedule(driver: WebDriver, retryCount: int = 0) -> bool | str:
             Console.waiting(DATE_REQUEST_DELAY, "before retry")
             sleep(DATE_REQUEST_DELAY)
             continue
+        
         earliest_available_date = dates[0]
         latest_acceptable_date = datetime.strptime(
             LATEST_ACCEPTABLE_DATE, "%Y-%m-%d"
         ).date()
+        
         if earliest_available_date <= latest_acceptable_date:
             Console.found_slot(str(earliest_available_date))
+            
+            # Send immediate notification that slot was found (async - don't wait)
+            notify_slot_found_async(str(earliest_available_date), USER_CONSULATE)
+            
             try:
                 Console.info(
                     f"Attempting to reschedule to {earliest_available_date}..."
                 )
-                if legacy_reschedule(driver, earliest_available_date):
-                    Console.reschedule_status(True)
-                    return True
-                Console.reschedule_status(False)
-                return False
+                
+                # Try to reschedule with retry logic for race conditions
+                max_booking_attempts = BOOKING_RETRY_ATTEMPTS
+                for attempt in range(max_booking_attempts):
+                    if attempt > 0:
+                        Console.info(f"Retry attempt {attempt + 1}/{max_booking_attempts} for booking...")
+                        sleep(BOOKING_RETRY_DELAY)  # Use configured delay
+                    
+                    if legacy_reschedule(driver, earliest_available_date):
+                        Console.reschedule_status(True)
+                        # Send success notification (async)
+                        notify_reschedule_success_async(str(earliest_available_date), USER_CONSULATE)
+                        return True
+                    else:
+                        if attempt < max_booking_attempts - 1:
+                            Console.warning(f"Booking attempt {attempt + 1} failed, retrying...", "BOOKING")
+                        else:
+                            Console.reschedule_status(False)
+                            # Send failure notification (async)
+                            notify_reschedule_failed_async(str(earliest_available_date), USER_CONSULATE, "Slot no longer available")
+                            return False
+                            
             except Exception as e:
                 Console.error(f"Rescheduling failed: {e}", "RESCHEDULE")
                 Console.debug(traceback.format_exc())
+                # Send failure notification (async)
+                notify_reschedule_failed_async(str(earliest_available_date), USER_CONSULATE, str(e))
                 continue
         else:
             Console.date_check(str(earliest_available_date), acceptable=False)
+        
         Console.waiting(DATE_REQUEST_DELAY, "before next check")
         sleep(DATE_REQUEST_DELAY)
     return False
