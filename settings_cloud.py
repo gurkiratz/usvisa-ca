@@ -45,6 +45,11 @@ DATE_REQUEST_DELAY = int(os.getenv("DATE_REQUEST_DELAY", "30"))
 DATE_REQUEST_MAX_RETRY = int(os.getenv("DATE_REQUEST_MAX_RETRY", "1000"))
 DATE_REQUEST_MAX_TIME = int(os.getenv("DATE_REQUEST_MAX_TIME", "1800"))  # 30 minutes
 
+# Race condition handling settings
+BOOKING_RETRY_ATTEMPTS = int(os.getenv("BOOKING_RETRY_ATTEMPTS", "3"))
+BOOKING_RETRY_DELAY = int(os.getenv("BOOKING_RETRY_DELAY", "2"))
+FAST_MODE = os.getenv("FAST_MODE", "true").lower() == "true"  # Reduce delays for faster response
+
 # Cloud platform timeout (6 hours for GitHub Actions)
 MAX_RUNTIME_SECONDS = int(os.getenv("MAX_RUNTIME_SECONDS", "21600"))  # 6 hours
 
