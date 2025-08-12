@@ -4,6 +4,7 @@ Provides colored, formatted console messages for better user experience
 """
 
 from datetime import datetime
+import pytz
 
 from colorama import Back, Fore, Style, init
 
@@ -16,8 +17,13 @@ class Console:
 
     @staticmethod
     def _get_timestamp():
-        """Get formatted timestamp"""
-        return datetime.now().strftime("%H:%M:%S")
+        """Get formatted timestamp in EST timezone"""
+        # Get current time in UTC
+        utc_now = datetime.now(pytz.UTC)
+        # Convert to EST (Eastern Standard Time)
+        est_tz = pytz.timezone('America/Toronto')
+        est_time = utc_now.astimezone(est_tz)
+        return est_time.strftime("%H:%M:%S")
 
     @staticmethod
     def success(message: str, prefix: str = "SUCCESS"):

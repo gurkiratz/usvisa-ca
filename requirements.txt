@@ -2,3 +2,4 @@ requests
 selenium
 webdriver_manager
 colorama
+pytz
