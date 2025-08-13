@@ -180,9 +180,19 @@ def get_available_dates(
     request_headers["Cookie"] = request_header_cookie
     request_headers["User-Agent"] = driver.execute_script("return navigator.userAgent")
     try:
-        response = requests.get(request_url, headers=request_headers)
+        response = requests.get(request_url, headers=request_headers, timeout=30)
     except Exception as e:
+        error_msg = str(e)
         Console.error(f"Get available dates request failed: {e}", "REQUEST")
+        
+        # Check for specific network connection errors that should trigger login renewal
+        if ("Connection aborted" in error_msg and "RemoteDisconnected" in error_msg) or \
+           "Remote end closed connection" in error_msg or \
+           "Connection broken" in error_msg or \
+           "ConnectionError" in error_msg:
+            Console.warning("Network connection lost - triggering session renewal to login again", "NETWORK")
+            return "SESSION_EXPIRED"
+        
         return None
 
     if response.status_code == 401:
