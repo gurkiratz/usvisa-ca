@@ -31,6 +31,13 @@ GMAIL_APPLICATION_PWD = ""
 RECEIVER_NAME = ""
 RECEIVER_EMAIL = ""
 
+# Pushover notification settings (for instant notifications)
+# Get your app token from https://pushover.net/apps/build
+# Get your user key from https://pushover.net/
+PUSHOVER_APP_TOKEN = ""
+PUSHOVER_USER_KEY = ""
+PUSHOVER_ENABLED = True  # Set to False to disable Pushover notifications
+
 # Override with local, for developers
 # from local import *
 

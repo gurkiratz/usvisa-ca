@@ -1,6 +1,7 @@
 # Try to import cloud settings (environment variables), fallback to local settings
 import os
 import re
+import threading
 import traceback
 from datetime import datetime
 from time import sleep
@@ -16,15 +17,17 @@ from console_utils import Console
 from legacy_rescheduler import legacy_reschedule
 from request_tracker import RequestTracker
 
-import threading
-
 # Import Gmail notification functionality
 try:
     from legacy.gmail.gmail import GMail, Message
+
     GMAIL_AVAILABLE = True
 except ImportError:
     GMAIL_AVAILABLE = False
-    Console.warning("Gmail notification module not available - notifications will be disabled", "IMPORT")
+    Console.warning(
+        "Gmail notification module not available - notifications will be disabled",
+        "IMPORT",
+    )
 
 # Validate required environment variables
 required_vars = [
@@ -71,6 +74,11 @@ GMAIL_EMAIL = os.getenv("GMAIL_EMAIL")
 GMAIL_APPLICATION_PWD = os.getenv("GMAIL_APPLICATION_PWD")
 RECEIVER_NAME = os.getenv("RECEIVER_NAME", "User")
 RECEIVER_EMAIL = os.getenv("RECEIVER_EMAIL")
+
+# Pushover notification settings
+PUSHOVER_APP_TOKEN = os.getenv("PUSHOVER_APP_TOKEN")
+PUSHOVER_USER_KEY = os.getenv("PUSHOVER_USER_KEY")
+PUSHOVER_ENABLED = os.getenv("PUSHOVER_ENABLED", "true").lower() == "true"
 
 # Runtime settings
 SHOW_GUI = os.getenv("SHOW_GUI", "false").lower() == "true"
@@ -184,15 +192,20 @@ def get_available_dates(
     except Exception as e:
         error_msg = str(e)
         Console.error(f"Get available dates request failed: {e}", "REQUEST")
-        
+
         # Check for specific network connection errors that should trigger login renewal
-        if ("Connection aborted" in error_msg and "RemoteDisconnected" in error_msg) or \
-           "Remote end closed connection" in error_msg or \
-           "Connection broken" in error_msg or \
-           "ConnectionError" in error_msg:
-            Console.warning("Network connection lost - triggering session renewal to login again", "NETWORK")
+        if (
+            ("Connection aborted" in error_msg and "RemoteDisconnected" in error_msg)
+            or "Remote end closed connection" in error_msg
+            or "Connection broken" in error_msg
+            or "ConnectionError" in error_msg
+        ):
+            Console.warning(
+                "Network connection lost - triggering session renewal to login again",
+                "NETWORK",
+            )
             return "SESSION_EXPIRED"
-        
+
         return None
 
     if response.status_code == 401:
@@ -227,16 +240,14 @@ def get_available_dates(
 
 def notify_slot_found_async(date_str: str, consulate: str):
     """Send email notification asynchronously when a slot is found"""
+
     def send_notification():
         try:
             if not GMAIL_AVAILABLE:
                 Console.warning("Gmail not available - skipping notification", "NOTIFY")
                 return False
-            
-            gmail = GMail(
-                f"{GMAIL_SENDER_NAME} <{GMAIL_EMAIL}>", 
-                GMAIL_APPLICATION_PWD
-            )
+
+            gmail = GMail(f"{GMAIL_SENDER_NAME} <{GMAIL_EMAIL}>", GMAIL_APPLICATION_PWD)
             msg = Message(
                 f"🎯 VISA APPOINTMENT SLOT FOUND: {date_str} at {consulate}",
                 to=f"{RECEIVER_NAME} <{RECEIVER_EMAIL}>",
@@ -245,7 +256,7 @@ def notify_slot_found_async(date_str: str, consulate: str):
 
 Date: {date_str}
 Consulate: {consulate}
-Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 
 The system is attempting to book this slot automatically.
 Please check your visa account to confirm the booking.
@@ -254,7 +265,7 @@ If you need to manually book, log in immediately at:
 https://ais.usvisa-info.com/en-ca/niv/users/sign_in
 
 Good luck! 🍀
-            """
+            """,
             )
             gmail.send(msg)
             Console.email_sent(RECEIVER_EMAIL)
@@ -263,23 +274,109 @@ Good luck! 🍀
         except Exception as e:
             Console.error(f"Failed to send email notification: {e}", "NOTIFY")
             return False
-    
+
     # Start notification in background thread - don't wait for it
     notification_thread = threading.Thread(target=send_notification, daemon=True)
     notification_thread.start()
     Console.info(f"Email notification started in background for slot on {date_str}")
 
+
+def send_pushover_notification(
+    title: str, message: str, priority: int = 1, sound: str = "pushover"
+) -> bool:
+    """Send instant push notification via Pushover
+
+    Args:
+        title: Notification title
+        message: Notification message
+        priority: -2 (lowest), -1 (low), 0 (normal), 1 (high), 2 (emergency)
+        sound: Sound name (pushover, bike, bugle, cashregister, classical, cosmic, falling,
+               gamelan, incoming, intermission, magic, mechanical, pianobar, siren,
+               spacealarm, tugboat, alien, climb, persistent, echo, updown, none)
+
+    Returns:
+        bool: True if notification sent successfully, False otherwise
+    """
+    if not PUSHOVER_ENABLED:
+        Console.info("Pushover notifications disabled - skipping")
+        return False
+
+    if not PUSHOVER_APP_TOKEN or not PUSHOVER_USER_KEY:
+        Console.warning(
+            "Pushover credentials not configured - skipping notification", "PUSHOVER"
+        )
+        return False
+
+    try:
+        url = "https://api.pushover.net/1/messages.json"
+        data = {
+            "token": PUSHOVER_APP_TOKEN,
+            "user": PUSHOVER_USER_KEY,
+            "title": title,
+            "message": message,
+            "priority": priority,
+            "sound": sound,
+        }
+
+        # Add emergency priority settings if needed
+        if priority == 2:
+            data["retry"] = 30  # Retry every 30 seconds
+            data["expire"] = 3600  # Stop retrying after 1 hour
+
+        response = requests.post(url, data=data, timeout=10)
+
+        if response.status_code == 200:
+            result = response.json()
+            if result.get("status") == 1:
+                Console.info("Pushover notification sent successfully", "PUSHOVER")
+                return True
+            else:
+                Console.error(
+                    f"Pushover API error: {result.get('errors', 'Unknown error')}",
+                    "PUSHOVER",
+                )
+                return False
+        else:
+            Console.error(
+                f"Pushover HTTP error: {response.status_code} - {response.text}",
+                "PUSHOVER",
+            )
+            return False
+
+    except requests.exceptions.RequestException as e:
+        Console.error(f"Pushover request failed: {e}", "PUSHOVER")
+        return False
+    except Exception as e:
+        Console.error(f"Pushover notification failed: {e}", "PUSHOVER")
+        return False
+
+
+def notify_slot_found_pushover_and_email(date_str: str, consulate: str):
+    """Send both instant Pushover notification and email notification when a slot is found"""
+    # Send instant Pushover notification first (synchronous for immediate delivery)
+    pushover_success = send_pushover_notification(
+        title=f"🎯 VISA SLOT FOUND: {date_str}",
+        message=f"Available at {consulate}!\nThe system is booking automatically.\nCheck your account to confirm!\n\nhttps://ais.usvisa-info.com/en-ca/niv/users/sign_in",
+        priority=2,  # Emergency priority for instant delivery
+        sound="siren",  # Attention-grabbing sound
+    )
+
+    if pushover_success:
+        Console.info(f"Instant Pushover notification sent for slot on {date_str}")
+
+    # Also send email notification (async - don't wait for it)
+    notify_slot_found_async(date_str, consulate)
+
+
 def notify_reschedule_success_async(date_str: str, consulate: str):
     """Send email notification asynchronously when rescheduling is successful"""
+
     def send_notification():
         try:
             if not GMAIL_AVAILABLE:
                 return False
-            
-            gmail = GMail(
-                f"{GMAIL_SENDER_NAME} <{GMAIL_EMAIL}>", 
-                GMAIL_APPLICATION_PWD
-            )
+
+            gmail = GMail(f"{GMAIL_SENDER_NAME} <{GMAIL_EMAIL}>", GMAIL_APPLICATION_PWD)
             msg = Message(
                 f"✅ VISA APPOINTMENT RESCHEDULED SUCCESSFULLY: {date_str}",
                 to=f"{RECEIVER_NAME} <{RECEIVER_EMAIL}>",
@@ -288,7 +385,7 @@ def notify_reschedule_success_async(date_str: str, consulate: str):
 
 New Date: {date_str}
 Consulate: {consulate}
-Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 
 Your visa appointment has been automatically rescheduled to {date_str}.
 Please log in to your visa account to confirm the new appointment details.
@@ -296,7 +393,7 @@ Please log in to your visa account to confirm the new appointment details.
 Login at: https://ais.usvisa-info.com/en-ca/niv/users/sign_in
 
 Congratulations! 🎉
-            """
+            """,
             )
             gmail.send(msg)
             Console.email_sent(RECEIVER_EMAIL)
@@ -305,23 +402,39 @@ Congratulations! 🎉
         except Exception as e:
             Console.error(f"Failed to send success notification: {e}", "NOTIFY")
             return False
-    
+
     # Start notification in background thread
     notification_thread = threading.Thread(target=send_notification, daemon=True)
     notification_thread.start()
     Console.info(f"Success notification started in background for {date_str}")
 
+
+def notify_reschedule_success_pushover_and_email(date_str: str, consulate: str):
+    """Send both Pushover and email notifications for successful rescheduling"""
+    # Send instant Pushover notification
+    pushover_success = send_pushover_notification(
+        title=f"✅ VISA APPOINTMENT BOOKED!",
+        message=f"Successfully rescheduled to {date_str} at {consulate}!\nConfirm in your visa account.",
+        priority=1,  # High priority
+        sound="magic",  # Success sound
+    )
+
+    if pushover_success:
+        Console.info(f"Success Pushover notification sent for {date_str}")
+
+    # Also send email notification (async)
+    notify_reschedule_success_async(date_str, consulate)
+
+
 def notify_reschedule_failed_async(date_str: str, consulate: str, error_msg: str):
     """Send email notification asynchronously when rescheduling fails"""
+
     def send_notification():
         try:
             if not GMAIL_AVAILABLE:
                 return False
-            
-            gmail = GMail(
-                f"{GMAIL_SENDER_NAME} <{GMAIL_EMAIL}>", 
-                GMAIL_APPLICATION_PWD
-            )
+
+            gmail = GMail(f"{GMAIL_SENDER_NAME} <{GMAIL_EMAIL}>", GMAIL_APPLICATION_PWD)
             msg = Message(
                 f"❌ VISA APPOINTMENT RESCHEDULING FAILED: {date_str}",
                 to=f"{RECEIVER_NAME} <{RECEIVER_EMAIL}>",
@@ -330,7 +443,7 @@ def notify_reschedule_failed_async(date_str: str, consulate: str, error_msg: str
 
 Target Date: {date_str}
 Consulate: {consulate}
-Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 Error: {error_msg}
 
 The system found a slot but failed to book it. This could be due to:
@@ -342,7 +455,7 @@ The system will continue trying to find and book other available slots.
 
 You may want to manually check for available appointments at:
 https://ais.usvisa-info.com/en-ca/niv/users/sign_in
-            """
+            """,
             )
             gmail.send(msg)
             Console.email_sent(RECEIVER_EMAIL)
@@ -351,11 +464,30 @@ https://ais.usvisa-info.com/en-ca/niv/users/sign_in
         except Exception as e:
             Console.error(f"Failed to send failure notification: {e}", "NOTIFY")
             return False
-    
+
     # Start notification in background thread
     notification_thread = threading.Thread(target=send_notification, daemon=True)
     notification_thread.start()
     Console.info(f"Failure notification started in background for {date_str}")
+
+
+def notify_reschedule_failed_pushover_and_email(
+    date_str: str, consulate: str, error_msg: str
+):
+    """Send both Pushover and email notifications for failed rescheduling"""
+    # Send instant Pushover notification
+    pushover_success = send_pushover_notification(
+        title=f"❌ BOOKING FAILED: {date_str}",
+        message=f"Failed to book {date_str} at {consulate}.\nReason: {error_msg[:100]}...\nContinuing to search...",
+        priority=1,  # High priority
+        sound="falling",  # Failure sound
+    )
+
+    if pushover_success:
+        Console.info(f"Failure Pushover notification sent for {date_str}")
+
+    # Also send email notification (async)
+    notify_reschedule_failed_async(date_str, consulate, error_msg)
 
 
 def reschedule(driver: WebDriver, retryCount: int = 0) -> bool | str:
@@ -379,53 +511,68 @@ def reschedule(driver: WebDriver, retryCount: int = 0) -> bool | str:
             Console.waiting(DATE_REQUEST_DELAY, "before retry")
             sleep(DATE_REQUEST_DELAY)
             continue
-        
+
         earliest_available_date = dates[0]
         latest_acceptable_date = datetime.strptime(
             LATEST_ACCEPTABLE_DATE, "%Y-%m-%d"
         ).date()
-        
+
         if earliest_available_date <= latest_acceptable_date:
             Console.found_slot(str(earliest_available_date))
-            
-            # Send immediate notification that slot was found (async - don't wait)
-            notify_slot_found_async(str(earliest_available_date), USER_CONSULATE)
-            
+
+            # Send immediate notification that slot was found (Pushover + email)
+            notify_slot_found_pushover_and_email(
+                str(earliest_available_date), USER_CONSULATE
+            )
+
             try:
                 Console.info(
                     f"Attempting to reschedule to {earliest_available_date}..."
                 )
-                
+
                 # Try to reschedule with retry logic for race conditions
                 max_booking_attempts = BOOKING_RETRY_ATTEMPTS
                 for attempt in range(max_booking_attempts):
                     if attempt > 0:
-                        Console.info(f"Retry attempt {attempt + 1}/{max_booking_attempts} for booking...")
+                        Console.info(
+                            f"Retry attempt {attempt + 1}/{max_booking_attempts} for booking..."
+                        )
                         sleep(BOOKING_RETRY_DELAY)  # Use configured delay
-                    
+
                     if legacy_reschedule(driver, earliest_available_date):
                         Console.reschedule_status(True)
-                        # Send success notification (async)
-                        notify_reschedule_success_async(str(earliest_available_date), USER_CONSULATE)
+                        # Send success notification (Pushover + email)
+                        notify_reschedule_success_pushover_and_email(
+                            str(earliest_available_date), USER_CONSULATE
+                        )
                         return True
                     else:
                         if attempt < max_booking_attempts - 1:
-                            Console.warning(f"Booking attempt {attempt + 1} failed, retrying...", "BOOKING")
+                            Console.warning(
+                                f"Booking attempt {attempt + 1} failed, retrying...",
+                                "BOOKING",
+                            )
                         else:
                             Console.reschedule_status(False)
-                            # Send failure notification (async)
-                            notify_reschedule_failed_async(str(earliest_available_date), USER_CONSULATE, "Slot no longer available")
+                            # Send failure notification (Pushover + email)
+                            notify_reschedule_failed_pushover_and_email(
+                                str(earliest_available_date),
+                                USER_CONSULATE,
+                                "Slot no longer available",
+                            )
                             return False
-                            
+
             except Exception as e:
                 Console.error(f"Rescheduling failed: {e}", "RESCHEDULE")
                 Console.debug(traceback.format_exc())
-                # Send failure notification (async)
-                notify_reschedule_failed_async(str(earliest_available_date), USER_CONSULATE, str(e))
+                # Send failure notification (Pushover + email)
+                notify_reschedule_failed_pushover_and_email(
+                    str(earliest_available_date), USER_CONSULATE, str(e)
+                )
                 continue
         else:
             Console.date_check(str(earliest_available_date), acceptable=False)
-        
+
         Console.waiting(DATE_REQUEST_DELAY, "before next check")
         sleep(DATE_REQUEST_DELAY)
     return False
