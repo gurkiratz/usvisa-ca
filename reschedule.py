@@ -282,7 +282,12 @@ Good luck! 🍀
 
 
 def send_pushover_notification(
-    title: str, message: str, priority: int = 1, sound: str = "pushover"
+    title: str,
+    message: str,
+    priority: int = 1,
+    sound: str = "pushover",
+    url: str = "",
+    url_title: str = "",
 ) -> bool:
     """Send instant push notification via Pushover
 
@@ -308,7 +313,7 @@ def send_pushover_notification(
         return False
 
     try:
-        url = "https://api.pushover.net/1/messages.json"
+        pushover_url = "https://api.pushover.net/1/messages.json"
         data = {
             "token": PUSHOVER_APP_TOKEN,
             "user": PUSHOVER_USER_KEY,
@@ -316,6 +321,8 @@ def send_pushover_notification(
             "message": message,
             "priority": priority,
             "sound": sound,
+            "url": url,
+            "url_title": url_title,
         }
 
         # Add emergency priority settings if needed
@@ -323,7 +330,7 @@ def send_pushover_notification(
             data["retry"] = 30  # Retry every 30 seconds
             data["expire"] = 3600  # Stop retrying after 1 hour
 
-        response = requests.post(url, data=data, timeout=10)
+        response = requests.post(pushover_url, data=data, timeout=10)
 
         if response.status_code == 200:
             result = response.json()
@@ -358,7 +365,9 @@ def notify_slot_found_pushover_and_email(date_str: str, consulate: str):
         title=f"🎯 VISA SLOT FOUND: {date_str}",
         message=f"Available at {consulate}!\nThe system is booking automatically.\nCheck your account to confirm!\n\nhttps://ais.usvisa-info.com/en-ca/niv/users/sign_in",
         priority=2,  # Emergency priority for instant delivery
-        sound="siren",  # Attention-grabbing sound
+        sound="alien",  # Attention-grabbing sound
+        url="https://ais.usvisa-info.com/en-ca/niv/schedule/60227641/appointment",
+        url_title="Login to your account",
     )
 
     if pushover_success:

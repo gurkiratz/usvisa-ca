@@ -32,14 +32,16 @@ def test_pushover_notifications():
         title="🎯 TEST: VISA SLOT FOUND",
         message="Test slot found at Toronto!\nThis is a test notification with emergency priority.",
         priority=2,  # Emergency
-        sound="siren",
+        sound="alien",
+        url="https://ais.usvisa-info.com/en-ca/niv/schedule/60227641/appointment",
+        url_title="Login to your account",
     )
     print(f"   Result: {'✅ Success' if success1 else '❌ Failed'}")
 
     # Wait a moment between notifications
     import time
 
-    time.sleep(2)
+    time.sleep(5)
 
     # Test 2: Success Notification (High Priority)
     print("\n2. Testing SUCCESS notification (High Priority)...")
@@ -51,7 +53,7 @@ def test_pushover_notifications():
     )
     print(f"   Result: {'✅ Success' if success2 else '❌ Failed'}")
 
-    time.sleep(2)
+    time.sleep(5)
 
     # Test 3: Failure Notification (Normal Priority)
     print("\n3. Testing FAILURE notification (Normal Priority)...")
