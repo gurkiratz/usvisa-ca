@@ -16,6 +16,11 @@ export GMAIL_APPLICATION_PWD="your_16_char_app_password"
 export RECEIVER_NAME="Your Name"
 export RECEIVER_EMAIL="notifications@example.com"
 
+# Pushover notification settings (optional - for instant mobile notifications)
+export PUSHOVER_APP_TOKEN="your_pushover_app_token_here"
+export PUSHOVER_USER_KEY="your_pushover_user_key_here"
+export PUSHOVER_ENABLED="true"
+
 export SHOW_GUI="true"  # Set to false for headless mode
 export TEST_MODE="false"
 

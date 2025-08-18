@@ -111,6 +111,11 @@ jobs:
           RECEIVER_NAME: ${{ secrets.RECEIVER_NAME || 'User' }}
           RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
 
+          # Pushover notification settings
+          PUSHOVER_APP_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}
+          PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
+          PUSHOVER_ENABLED: ${{ secrets.PUSHOVER_ENABLED || 'true' }}
+
           # Runtime settings
           SHOW_GUI: false
           TEST_MODE: false
